@@ -11,6 +11,7 @@ def get_start_widget(appbase, jupbase):
     <td valign="top"><ul>
     <li><a href="{appbase}/upload_structure.ipynb" target="_blank">Upload structures</a>
     <li><a href="{appbase}/replicas.ipynb" target="_blank">Generate replicas</a>
+    <li><a href="{appbase}/../../../tree/apps/reactions" target="_blank">File Tree</li>
     </ul></td>
     </tr>
 """
