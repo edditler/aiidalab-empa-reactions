@@ -1,6 +1,6 @@
 from aiida.orm.data.structure import StructureData
 from aiida.orm.data.parameter import ParameterData
-from aiida.orm.data.base import Int, Str
+from aiida.orm.data.base import Int, Str, Float
 from aiida.orm.data.singlefile import SinglefileData
 from aiida.orm.data.remote import RemoteData
 from aiida.orm.code import Code
@@ -27,6 +27,8 @@ class ReplicaWorkchain(WorkChain):
         spec.input("colvar_type", valid_type=Str)
         spec.input("colvar_atoms", valid_type=Str)
         spec.input("replica_name", valid_type=Str)
+        spec.input("fixed_atoms", valid_type=Str, Default=Str(''))
+        spec.input("spring", valid_type=Float, Default=Float(75.0))
 
         spec.outline(
             cls.init,
@@ -89,9 +91,11 @@ class ReplicaWorkchain(WorkChain):
                                         self.ctx.this_replica,
                                         self.inputs.colvar_type,
                                         self.inputs.colvar_atoms,
+                                        self.inputs.fixed_atoms,
                                         self.inputs.num_machines,
                                         self.ctx.remote_calc_folder,
-                                        self.ctx.this_name)
+                                        self.ctx.this_name,
+                                        self.inputs.spring)
 
         self.report(" ")
         self.report("inputs: "+str(inputs))
@@ -109,8 +113,9 @@ class ReplicaWorkchain(WorkChain):
     # ==========================================================================
     @classmethod
     def build_calc_inputs(cls, structure, cell, code, colvar_target,
-                          colvar_type, colvar_atoms,
-                          num_machines, remote_calc_folder, replica_name):
+                          colvar_type, colvar_atoms, fixed_atoms,
+                          num_machines, remote_calc_folder, replica_name,
+                          spring):
 
         inputs = {}
         inputs['_label'] = "replica_geo_opt"
@@ -134,14 +139,16 @@ class ReplicaWorkchain(WorkChain):
         # parameters
         cell_abc = cell
         # cell_abc = "41.637276  41.210215  40.000000"
-        # cell_abc = "%f  %f  %f" % (atoms.cell[0, 0],
+        #cell_abc = "%f  %f  %f" % (atoms.cell[0, 0],
         #                           atoms.cell[1, 1],
         #                           atoms.cell[2, 2])
 
         inp = cls.get_cp2k_input(cell_abc,
                                  colvar_target,
                                  colvar_type,
-                                 colvar_atoms)
+                                 colvar_atoms,
+                                 fixed_atoms,
+                                 spring)
 
         if remote_calc_folder is not None:
             inputs['parent_folder'] = remote_calc_folder
@@ -163,7 +170,8 @@ class ReplicaWorkchain(WorkChain):
     # ==========================================================================
     @classmethod
     def get_cp2k_input(cls, cell_abc,
-                       colvar_target, colvar_type, colvar_atoms):
+                       colvar_target, colvar_type, colvar_atoms, fixed_atoms,
+                       spring):
 
         inp = {
             'GLOBAL': {
@@ -171,7 +179,7 @@ class ReplicaWorkchain(WorkChain):
                 'WALLTIME': 85500,
                 'PRINT_LEVEL': 'LOW'
             },
-            'MOTION': cls.get_motion(colvar_target),
+            'MOTION': cls.get_motion(colvar_target, fixed_atoms, spring),
             'FORCE_EVAL': cls.get_force_eval_qs_dft(cell_abc,
                                                     colvar_type,
                                                     colvar_atoms),
@@ -180,16 +188,19 @@ class ReplicaWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def get_motion(cls, colvar_target):
+    def get_motion(cls, colvar_target, fixed_atoms):
         motion = {
             'CONSTRAINT': {
                 'COLLECTIVE': {
                     'COLVAR': 1,
                     'RESTRAINT': {
-                        'K': '[eV/angstrom^2] 75.0'
+                        'K': '[eV/angstrom^2] {}'.format(spring)
                     },
                     'TARGET': '[angstrom] {}'.format(colvar_target),
                     'INTERMOLECULAR': ''
+                },
+                'FIXED_ATOMS': {
+                    'LIST': '{}'.format(fixed_atoms)
                 }
             },
             'GEO_OPT': {
