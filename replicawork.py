@@ -22,13 +22,13 @@ class ReplicaWorkchain(WorkChain):
         spec.input("cp2k_code", valid_type=Code)
         spec.input("structure", valid_type=StructureData)
         spec.input("num_machines", valid_type=Int, default=Int(54))
-        spec.input("cell", valid_type=Str, default=Str('60 60 60'))
+        spec.input("cell", valid_type=Str, default=Str(''))
         spec.input("colvar_targets", valid_type=Str)
         spec.input("colvar_type", valid_type=Str)
         spec.input("colvar_atoms", valid_type=Str)
         spec.input("replica_name", valid_type=Str)
-        spec.input("fixed_atoms", valid_type=Str, Default=Str(''))
-        spec.input("spring", valid_type=Float, Default=Float(75.0))
+        spec.input("fixed_atoms", valid_type=Str, default=Str(''))
+        spec.input("spring", valid_type=Float, default=Float(75.0))
 
         spec.outline(
             cls.init,
@@ -65,6 +65,8 @@ class ReplicaWorkchain(WorkChain):
     # ==========================================================================
     def next_replica(self):
         self.report('Go to replica - {}'.format(len(self.ctx.replica_list)))
+        self.report('Remaining list: {} ({})'.format(self.ctx.replica_list,
+                                                    len(self.ctx.replica_list)))
         if len(self.ctx.replica_list) > 0:
             self.ctx.this_replica = self.ctx.replica_list.pop(0)
         else:
@@ -83,7 +85,8 @@ class ReplicaWorkchain(WorkChain):
 
     # ==========================================================================
     def generate_replica(self):
-        self.report("Running CP2K geometry optimization")
+        self.report("Running CP2K geometry optimization - Target: "
+                    .format(self.ctx.this_replica))
 
         inputs = self.build_calc_inputs(self.ctx.structure,
                                         self.inputs.cell,
@@ -97,9 +100,9 @@ class ReplicaWorkchain(WorkChain):
                                         self.ctx.this_name,
                                         self.inputs.spring)
 
-        self.report(" ")
-        self.report("inputs: "+str(inputs))
-        self.report(" ")
+        #self.report(" ")
+        #self.report("inputs: "+str(inputs))
+        #self.report(" ")
         future = submit(Cp2kCalculation.process(), **inputs)
         self.report("future: "+str(future))
         return ToContext(replica=Calc(future))
@@ -137,11 +140,13 @@ class ReplicaWorkchain(WorkChain):
         shutil.rmtree(tmpdir)
 
         # parameters
-        cell_abc = cell
         # cell_abc = "41.637276  41.210215  40.000000"
-        #cell_abc = "%f  %f  %f" % (atoms.cell[0, 0],
-        #                           atoms.cell[1, 1],
-        #                           atoms.cell[2, 2])
+        if cell == '' or len(str(cell)) < 3:
+            cell_abc = "%f  %f  %f" % (atoms.cell[0, 0],
+                                       atoms.cell[1, 1],
+                                       atoms.cell[2, 2])
+        else:
+            cell_abc = cell
 
         inp = cls.get_cp2k_input(cell_abc,
                                  colvar_target,
@@ -188,7 +193,7 @@ class ReplicaWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def get_motion(cls, colvar_target, fixed_atoms):
+    def get_motion(cls, colvar_target, fixed_atoms, spring):
         motion = {
             'CONSTRAINT': {
                 'COLLECTIVE': {
