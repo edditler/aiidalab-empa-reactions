@@ -13,6 +13,8 @@ from aiida_cp2k.calculations import Cp2kCalculation
 import tempfile
 import shutil
 
+import numpy as np
+
 
 class ReplicaWorkchain(WorkChain):
 
@@ -282,9 +284,7 @@ class ReplicaWorkchain(WorkChain):
                     'COORDINATE': 'XYZ',
                     'CONNECTIVITY': 'OFF',
                 },
-                'COLVAR': {
-                    subsys_colvar.get_attrs()
-                }
+                'COLVAR': subsys_colvar.get_attrs()
             }
         }
 
@@ -369,7 +369,7 @@ class ReplicaWorkchain(WorkChain):
                     'EXTRAPOLATION_ORDER': '3',
                     'DFTB': {
                         'SELF_CONSISTENT': 'T',
-                        'DISPERSION': 'T' %,
+                        'DISPERSION': 'T',
                         'ORTHOGONAL_BASIS': 'F',
                         'DO_EWALD': 'F',
                         'PARAMETER': {
@@ -444,7 +444,7 @@ class ReplicaWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def get_force_eval_qs_dft(cls, cell_abc, ,
+    def get_force_eval_qs_dft(cls, cell_abc,
                               subsys_colvar=None):
         force_eval = {
             'METHOD': 'Quickstep',
