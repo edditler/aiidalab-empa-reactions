@@ -1,7 +1,8 @@
-from aiida.orm.data.structure import StructureData
+# from aiida.orm.data.structure import StructureData
 from aiida.orm.data.parameter import ParameterData
-from aiida.orm.data.base import Int, Str, Float, Bool
+from aiida.orm.data.base import Int, Str, Float, Bool, List
 from aiida.orm.data.singlefile import SinglefileData
+from aiida.orm.data.folder import FolderData
 from aiida.orm.code import Code
 
 from aiida.work.workchain import WorkChain, ToContext, Calc, while_
@@ -21,7 +22,7 @@ class NEBWorkchain(WorkChain):
     def define(cls, spec):
         super(NEBWorkchain, cls).define(spec)
         spec.input("cp2k_code", valid_type=Code)
-        spec.input("structures", valid_type=list)
+        spec.input("strucs", valid_type=FolderData)
         spec.input("num_machines", valid_type=Int, default=Int(54))
         spec.input("calc_name", valid_type=Str)
         spec.input("cell", valid_type=Str, default=Str(''))
@@ -35,13 +36,15 @@ class NEBWorkchain(WorkChain):
         spec.input("nstepsit", valid_type=Int)
         spec.input("endpoints", valid_type=Bool)
         spec.input("calc_type", valid_type=Str)
+        spec.input("first_slab_atom", valid_type=Int)
+        spec.input("last_slab_atom", valid_type=Int)
 
         spec.outline(
             cls.init,
-            # cls.calc_neb,
-            # while_(cls.not_converged)(
-                # cls.calc_neb
-            # ),
+            cls.calc_neb,
+            while_(cls.not_converged)(
+                cls.calc_neb
+            ),
             # cls.store_neb
         )
         spec.dynamic_output()
@@ -49,66 +52,48 @@ class NEBWorkchain(WorkChain):
     # ==========================================================================
     def not_converged(self):
         try:
-            self.ctx.remote_calc_folder = self.ctx.replica.out.remote_folder
-            self.ctx.structure = self.ctx.replica.out.output_structure
             self.report('Convergence check: {}'
-                        .format(self.ctx.replica.res.exceeded_walltime))
-            return self.ctx.replica.res.exceeded_walltime
+                        .format(self.ctx.neb.res.exceeded_walltime))
+            return self.ctx.neb.res.exceeded_walltime
         except AttributeError:
             return True
 
     # ==========================================================================
     def init(self):
         self.report('Init NEB')
-        # Here we need to create the xyz files of all the replicas
-
-        self.ctx.replica_list = str(self.inputs.colvar_targets).split()
-        self.ctx.replicas_done = 0
-        self.ctx.this_name = self.inputs.replica_name
-
-        self.report('#{} replicas'.format(len(self.ctx.replica_list)))
-        self.report('Replicas: {}'.format(self.ctx.replica_structures))
-
-    # ==========================================================================
-    def next_replica(self):
-        self.report('Go to replica - {}'.format(len(self.ctx.replica_list)))
-        self.report('Remaining list: {} ({})'
-                    .format(self.ctx.replica_list,
-                            len(self.ctx.replica_list)))
-        if len(self.ctx.replica_list) > 0:
-            self.ctx.this_replica = self.ctx.replica_list.pop(0)
-        else:
-            return False
-
-        if self.ctx.replicas_done == 0:
+        try:
+            self.ctx.remote_calc_folder = self.ctx.neb.remote_calc_folder
+        except:
             self.ctx.remote_calc_folder = None
-            self.ctx.structure = self.inputs.structure
-        else:
-            self.ctx.remote_calc_folder = self.ctx.replica.out.remote_folder
-            self.ctx.structure = self.ctx.replica.out.output_structure
-
-        self.ctx.replicas_done += 1
-
-        return True
+        # Here we need to create the xyz files of all the replicas
+        self.ctx.this_name = self.inputs.calc_name
+        self.ctx.files = self.inputs.strucs.get_folder_list()
+        
+        self.report('#{} replica geometries'.format(len(self.ctx.files)-2))
+        self.report('Replicas: {}'.format(self.ctx.files))
 
     # ==========================================================================
-    def generate_replica(self):
+    def calc_neb(self):
         self.report("Running CP2K geometry optimization - Target: "
-                    .format(self.ctx.this_replica))
+                    .format(self.ctx.this_name))
 
-        inputs = self.build_calc_inputs(self.ctx.structure,
+        inputs = self.build_calc_inputs(self.inputs.strucs,
                                         self.inputs.cell,
                                         self.inputs.cp2k_code,
-                                        self.ctx.this_replica,
                                         self.inputs.fixed_atoms,
                                         self.inputs.num_machines,
                                         self.ctx.remote_calc_folder,
-                                        self.ctx.this_name,
+                                        self.inputs.nproc_rep,
+                                        self.inputs.nreplicas,
                                         self.inputs.spring,
-                                        self.inputs.spring_unit,
-                                        self.inputs.target_unit,
-                                        self.inputs.subsys_colvar,
-                                        self.inputs.calc_type)
+                                        self.inputs.nstepsit,
+                                        self.inputs.rotate,
+                                        self.inputs.align,
+                                        self.inputs.endpoints,
+                                        self.inputs.calc_type,
+                                        self.ctx.files,
+                                        self.inputs.first_slab_atom,
+                                        self.inputs.last_slab_atom)
 
         self.report(" ")
         self.report("inputs: "+str(inputs))
@@ -116,44 +101,45 @@ class NEBWorkchain(WorkChain):
         future = submit(Cp2kCalculation.process(), **inputs)
         self.report("future: "+str(future))
         self.report(" ")
-        return ToContext(replica=Calc(future))
+        return ToContext(neb=Calc(future))
 
     # ==========================================================================
     def store_replica(self):
-        return self.out('replica_{}_{}'.format(self.ctx.this_replica,
-                                               self.ctx.this_name),
-                        self.ctx.replica.out.output_structure)
+        return self.out('replica_{}'.format(self.ctx.this_name),
+                        self.ctx.neb.out.output_structure)
 
     # ==========================================================================
     @classmethod
-    def build_calc_inputs(cls, structure, cell, code, colvar_target,
+    def build_calc_inputs(cls, structures, cell, code,
                           fixed_atoms, num_machines, remote_calc_folder,
-                          replica_name, spring, spring_unit, target_unit,
-                          subsys_colvar, calc_type):
+                          nproc_rep, num_replica, spring, nsteps_it,
+                          rotate, align, endpoints,
+                          calc_type, file_list, first_slab_atom,
+                          last_slab_atom):
 
         inputs = {}
-        inputs['_label'] = "replica_geo_opt"
-        inputs['_description'] = "replica_{}_{}".format(replica_name,
-                                                        colvar_target)
+        inputs['_label'] = "NEB"
+        # inputs['_description'] = "replica_{}_{}"
 
         inputs['code'] = code
         inputs['file'] = {}
 
+        for f in structures.get_folder_list():
+            inputs['file'][f] = SinglefileData(file=structures.get_abs_path()+'/path/'+f)
+        
         # make sure we're really dealing with a gold slab
-        atoms = structure.get_ase()  # slow
-        try:
-            first_slab_atom = np.argwhere(atoms.numbers == 79)[0, 0] + 1
-            is_H = atoms.numbers[first_slab_atom-1:] == 1
-            is_Au = atoms.numbers[first_slab_atom-1:] == 79
-            assert np.all(np.logical_or(is_H, is_Au))
-            assert np.sum(is_Au) / np.sum(is_H) == 4
-        except AssertionError:
-            raise Exception("Structure is not a proper slab.")
+        #atoms = structures[0].get_ase()  # slow
+        #try:
+        #    first_slab_atom = np.argwhere(atoms.numbers == 79)[0, 0] + 1
+        #    is_H = atoms.numbers[first_slab_atom-1:] == 1
+        #    is_Au = atoms.numbers[first_slab_atom-1:] == 79
+        #    assert np.all(np.logical_or(is_H, is_Au))
+        #except AssertionError:
+        #    raise Exception("Structure is not a proper slab.")
 
         # structure
-        molslab_f, mol_f = cls.mk_coord_files(atoms, first_slab_atom)
-        inputs['file']['molslab_coords'] = molslab_f
-        inputs['file']['mol_coords'] = mol_f
+        #input_folder = cls.mk_coord_files(structures, first_slab_atom)
+        #inputs['folder']['input_folder'] = structures
 
         # Au potential
         pot_f = SinglefileData(file='/project/apps/surfaces/slab/Au.pot')
@@ -172,15 +158,19 @@ class NEBWorkchain(WorkChain):
         machine_cores = remote_computer.get_default_mpiprocs_per_machine()
 
         inp = cls.get_cp2k_input(cell_abc,
-                                 colvar_target,
                                  fixed_atoms,
-                                 spring, spring_unit,
-                                 target_unit,
-                                 subsys_colvar,
+                                 nproc_rep,
+                                 num_replica,
+                                 spring,
+                                 nsteps_it,
+                                 rotate,
+                                 align,
+                                 endpoints,
+                                 len(file_list)-2,
                                  calc_type,
                                  machine_cores*num_machines,
                                  first_slab_atom,
-                                 len(atoms))
+                                 last_slab_atom)
 
         if remote_calc_folder is not None:
             inputs['parent_folder'] = remote_calc_folder
@@ -201,9 +191,8 @@ class NEBWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def get_cp2k_input(cls, cell_abc,
-                       colvar_target, fixed_atoms,
-                       spring, spring_unit, target_unit, subsys_colvar,
+    def get_cp2k_input(cls, cell_abc, fixed_atoms, nproc_rep, num_replica,
+                       spring, nsteps_it, rotate, align, endpoints, replicas,
                        calc_type, machine_cores, first_slab_atom,
                        last_slab_atom):
 
@@ -280,7 +269,7 @@ class NEBWorkchain(WorkChain):
             'SUBSYS': {
                 'CELL': {'ABC': cell_abc},
                 'TOPOLOGY': {
-                    'COORD_FILE_NAME': 'mol_on_slab1.xyz',
+                    'COORD_FILE_NAME': 'mol_on_slab0.xyz',
                     'COORDINATE': 'XYZ',
                     'CONNECTIVITY': 'OFF',
                 },
@@ -348,7 +337,7 @@ class NEBWorkchain(WorkChain):
                     'ABC': cell_abc,
                 },
                 'TOPOLOGY': {
-                    'COORD_FILE_NAME': 'mol_on_slab1.xyz',
+                    'COORD_FILE_NAME': 'mol_on_slab0.xyz',
                     'COORDINATE': 'XYZ',
                     'CONNECTIVITY': 'OFF',
                 },
@@ -405,7 +394,7 @@ class NEBWorkchain(WorkChain):
             'SUBSYS': {
                 'CELL': {'ABC': cell_abc},
                 'TOPOLOGY': {
-                    'COORD_FILE_NAME': 'mol1.xyz',
+                    'COORD_FILE_NAME': 'mol0.xyz',
                     'COORDINATE': 'xyz'
                 }
             }
@@ -457,16 +446,16 @@ class NEBWorkchain(WorkChain):
         }
 
         # The fun part
-        for r in replicas:
+        for r in range(replicas):
             motion['BAND']['REPLICA'].append({
-                'COORD_FILE_NAME': r
+                'COORD_FILE_NAME': 'replica{}.xyz'.format(r+1)
             })
 
         return motion
 
     # ==========================================================================
     @classmethod
-    def get_force_eval_qs_dft(cls, cell_abc, starting_geo):
+    def get_force_eval_qs_dft(cls, cell_abc):
         force_eval = {
             'METHOD': 'Quickstep',
             'DFT': {
@@ -524,7 +513,7 @@ class NEBWorkchain(WorkChain):
                 'CELL': {'ABC': cell_abc},
                 'TOPOLOGY': {
                     # starting geometry
-                    'COORD_FILE_NAME': 'mol_on_slab1.xyz',
+                    'COORD_FILE_NAME': 'mol0.xyz',
                     'COORDINATE': 'xyz',
                 },
                 'KIND': [],
@@ -571,19 +560,26 @@ class NEBWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def mk_coord_files(cls, atoms, first_slab_atom):
-        mol = atoms[:first_slab_atom-1]
-
+    def mk_coord_files(cls, structures, first_slab_atom):
         tmpdir = tempfile.mkdtemp()
-        molslab_fn = tmpdir + '/mol_on_slab.xyz'
-        mol_fn = tmpdir + '/mol.xyz'
+        # We need both mol1.xyz and molonslab1.xyz for the initial
+        # configuration
+        molslab1_fn = tmpdir + '/mol_on_slab0.xyz'
+        mol1_fn = tmpdir + '/mol0.xyz'
 
-        atoms.write(molslab_fn)
-        mol.write(mol_fn)
+        atoms = structures[0]
+        mol = atoms[:first_slab_atom-1]
+        atoms.write(molslab1_fn)
+        mol.write(mol1_fn)
 
-        molslab_f = SinglefileData(file=molslab_fn)
-        mol_f = SinglefileData(file=mol_fn)
+        # molslab_f = SinglefileData(file=molslab1_fn)
+        # mol_f = SinglefileData(file=mol1_fn)
 
+        # And we also write all the replicas up to the final geometry.
+        for i, atoms in enumerate(structures):
+            molslab_fn = tmpdir + 'replica{}.xyz'.format(i+1)
+            atoms.write(molslab_fn)
+
+        files = FolderData(folder=tmpdir)
         shutil.rmtree(tmpdir)
-
-        return molslab_f, mol_f
+        return files
