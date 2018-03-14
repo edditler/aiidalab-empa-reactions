@@ -14,4 +14,4 @@ CP2K supports a multitude of collective variables: ACID_HYDRONIUM_DISTANCE, ACID
 Of those ANGLE_PLANE_PLANE and DISTANCE are implemented right now.
 
 ## NEB
-The climbing image - nudged elastic band calculations is set up with a series of geometries (at least two) specified by their ids. The geometries are handed over to AiiDA as a FolderData object which is in turn transferred to the cluster.
+The climbing image - nudged elastic band calculation is set up with a series of geometries (at least two) specified by their ids. The geometries are handed over to AiiDA as a FolderData object which is in turn transferred to the cluster.
