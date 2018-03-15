@@ -1,19 +1,14 @@
-# from aiida.orm.data.structure import StructureData
 from aiida.orm.data.parameter import ParameterData
-from aiida.orm.data.base import Int, Str, Float, Bool, List
+from aiida.orm.data.base import Int, Str, Float, Bool
 from aiida.orm.data.singlefile import SinglefileData
 from aiida.orm.data.folder import FolderData
 from aiida.orm.code import Code
+# from aiida.orm.data.structure import StructureData
 
 from aiida.work.workchain import WorkChain, ToContext, Calc, while_
 from aiida.work.run import submit
 
 from aiida_cp2k.calculations import Cp2kCalculation
-
-import tempfile
-import shutil
-
-import numpy as np
 
 
 class NEBWorkchain(WorkChain):
@@ -22,15 +17,15 @@ class NEBWorkchain(WorkChain):
     def define(cls, spec):
         super(NEBWorkchain, cls).define(spec)
         spec.input("cp2k_code", valid_type=Code)
-        spec.input("strucs", valid_type=FolderData)
-        spec.input("num_machines", valid_type=Int, default=Int(54))
+        spec.input("struc_folder", valid_type=FolderData)
+        spec.input("num_machines", valid_type=Int)
         spec.input("calc_name", valid_type=Str)
-        spec.input("cell", valid_type=Str, default=Str(''))
-        spec.input("fixed_atoms", valid_type=Str, default=Str(''))
+        spec.input("cell", valid_type=Str)
+        spec.input("fixed_atoms", valid_type=Str)
 
         spec.input("nproc_rep", valid_type=Int)
         spec.input("nreplicas", valid_type=Int)
-        spec.input("spring", valid_type=Float, default=Float(0.05))
+        spec.input("spring", valid_type=Float)
         spec.input("rotate", valid_type=Bool)
         spec.input("align", valid_type=Bool)
         spec.input("nstepsit", valid_type=Int)
@@ -61,37 +56,46 @@ class NEBWorkchain(WorkChain):
     # ==========================================================================
     def init(self):
         self.report('Init NEB')
+        # Set the restart folder
         try:
             self.ctx.remote_calc_folder = self.ctx.neb.remote_calc_folder
-        except:
+        except AttributeError:
             self.ctx.remote_calc_folder = None
+
         # Here we need to create the xyz files of all the replicas
         self.ctx.this_name = self.inputs.calc_name
-        self.ctx.files = self.inputs.strucs.get_folder_list()
-        
-        self.report('#{} replica geometries'.format(len(self.ctx.files)-2))
-        self.report('Replicas: {}'.format(self.ctx.files))
+        self.ctx.file_list = self.inputs.struc_folder.get_folder_list()
+        self.ctx.n_files = len(self.ctx.file_list)-2
+
+        # Report some things
+        self.report('Passed #{} replica geometries'.format(self.ctx.n_files))
+        self.report('Replicas: {}'.format(self.ctx.file_list))
 
     # ==========================================================================
     def calc_neb(self):
-        self.report("Running CP2K geometry optimization - Target: "
+        self.report("Running CP2K CI-NEB calculation."
                     .format(self.ctx.this_name))
 
-        inputs = self.build_calc_inputs(self.inputs.strucs,
+        inputs = self.build_calc_inputs(self.inputs.struc_folder,
+                                        # Setup calculation
                                         self.inputs.cell,
                                         self.inputs.cp2k_code,
                                         self.inputs.fixed_atoms,
                                         self.inputs.num_machines,
                                         self.ctx.remote_calc_folder,
-                                        self.inputs.nproc_rep,
-                                        self.inputs.nreplicas,
-                                        self.inputs.spring,
-                                        self.inputs.nstepsit,
-                                        self.inputs.rotate,
+                                        # NEB input
                                         self.inputs.align,
                                         self.inputs.endpoints,
+                                        self.inputs.nproc_rep,
+                                        self.inputs.nreplicas,
+                                        self.inputs.nstepsit,
+                                        self.inputs.rotate,
+                                        self.inputs.spring,
+                                        # Calculation type specific
                                         self.inputs.calc_type,
-                                        self.ctx.files,
+                                        self.ctx.file_list,
+                                        # find this in the workflow
+                                        # instead of passing
                                         self.inputs.first_slab_atom,
                                         self.inputs.last_slab_atom)
 
@@ -110,67 +114,49 @@ class NEBWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def build_calc_inputs(cls, structures, cell, code,
+    def build_calc_inputs(cls, struc_folder, cell, code,
                           fixed_atoms, num_machines, remote_calc_folder,
-                          nproc_rep, num_replica, spring, nsteps_it,
-                          rotate, align, endpoints,
+                          # NEB input
+                          align, endpoints, nproc_rep, nreplicas, nstepsit,
+                          rotate, spring,
+                          # Calculation type specific
                           calc_type, file_list, first_slab_atom,
                           last_slab_atom):
 
         inputs = {}
         inputs['_label'] = "NEB"
-        # inputs['_description'] = "replica_{}_{}"
 
         inputs['code'] = code
         inputs['file'] = {}
 
-        for f in structures.get_folder_list():
-            inputs['file'][f] = SinglefileData(file=structures.get_abs_path()+'/path/'+f)
-        
-        # make sure we're really dealing with a gold slab
-        #atoms = structures[0].get_ase()  # slow
-        #try:
-        #    first_slab_atom = np.argwhere(atoms.numbers == 79)[0, 0] + 1
-        #    is_H = atoms.numbers[first_slab_atom-1:] == 1
-        #    is_Au = atoms.numbers[first_slab_atom-1:] == 79
-        #    assert np.all(np.logical_or(is_H, is_Au))
-        #except AssertionError:
-        #    raise Exception("Structure is not a proper slab.")
-
-        # structure
-        #input_folder = cls.mk_coord_files(structures, first_slab_atom)
-        #inputs['folder']['input_folder'] = structures
+        # The files passed by the notebook
+        for f in struc_folder.get_folder_list():
+            path = struc_folder.get_abs_path()+'/path/'+f
+            inputs['file'][f] = SinglefileData(file=path)
 
         # Au potential
         pot_f = SinglefileData(file='/project/apps/surfaces/slab/Au.pot')
         inputs['file']['au_pot'] = pot_f
 
-        # parameters
-        # if no cell is given use the one from the xyz file.
-        if cell == '' or len(str(cell)) < 3:
-            cell_abc = "%f  %f  %f" % (atoms.cell[0, 0],
-                                       atoms.cell[1, 1],
-                                       atoms.cell[2, 2])
-        else:
-            cell_abc = cell
-
         remote_computer = code.get_remote_computer()
         machine_cores = remote_computer.get_default_mpiprocs_per_machine()
 
-        inp = cls.get_cp2k_input(cell_abc,
-                                 fixed_atoms,
-                                 nproc_rep,
-                                 num_replica,
-                                 spring,
-                                 nsteps_it,
-                                 rotate,
-                                 align,
-                                 endpoints,
-                                 len(file_list)-2,
-                                 calc_type,
-                                 machine_cores*num_machines,
-                                 first_slab_atom,
-                                 last_slab_atom)
+        inp = cls.get_cp2k_input(cell=cell,
+                                 fixed_atoms=fixed_atoms,
+                                 machine_cores=machine_cores*num_machines,
+                                 # NEB input
+                                 align=align,
+                                 endpoints=endpoints,
+                                 nproc_rep=nproc_rep,
+                                 nreplicas=nreplicas,
+                                 nstepsit=nstepsit,
+                                 rotate=rotate,
+                                 spring=spring,
+                                 # Calculation specific
+                                 calc_type=calc_type,
+                                 nreplica_files=len(file_list)-2,
+                                 first_slab_atom=first_slab_atom,
+                                 last_slab_atom=last_slab_atom)
 
         if remote_calc_folder is not None:
             inputs['parent_folder'] = remote_calc_folder
@@ -184,61 +170,67 @@ class NEBWorkchain(WorkChain):
         # resources
         inputs['_options'] = {
             "resources": {"num_machines": num_machines},
-            "max_wallclock_seconds": 86000,
+            "max_wallclock_seconds": 21600,
+            #"max_wallclock_seconds": 86000,
         }
 
         return inputs
 
     # ==========================================================================
     @classmethod
-    def get_cp2k_input(cls, cell_abc, fixed_atoms, nproc_rep, num_replica,
-                       spring, nsteps_it, rotate, align, endpoints, replicas,
-                       calc_type, machine_cores, first_slab_atom,
-                       last_slab_atom):
+    def get_cp2k_input(cls, cell, fixed_atoms, machine_cores,
+                       align, endpoints, nproc_rep, nreplicas,
+                       nstepsit, rotate, spring,
+                       calc_type, nreplica_files,
+                       first_slab_atom, last_slab_atom):
 
         inp = {
             'GLOBAL': {
                 'RUN_TYPE': 'BAND',
-                'WALLTIME': 85500,
+                #'WALLTIME': 85500,
+                'WALLTIME': 21000,
                 'PRINT_LEVEL': 'LOW'
             },
-            'MOTION': cls.get_motion(fixed_atoms, nproc_rep, num_replica,
-                                     spring, nsteps_it, rotate, align,
-                                     endpoints, replicas),
+            'MOTION': cls.get_motion(fixed_atoms, nproc_rep, nreplicas,
+                                     spring, nstepsit, rotate, align,
+                                     endpoints, nreplica_files),
             'FORCE_EVAL': [],
         }
 
         if calc_type == 'Mixed DFTB':
-            inp['FORCE_EVAL'] = [cls.force_eval_mixed(cell_abc,
+            inp['FORCE_EVAL'] = [cls.force_eval_mixed(cell,
                                                       first_slab_atom,
                                                       last_slab_atom,
                                                       machine_cores),
-                                 cls.force_eval_fist(cell_abc),
-                                 cls.get_force_eval_qs_dftb(cell_abc)]
+                                 cls.force_eval_fist(cell),
+                                 cls.get_force_eval_qs_dftb(cell)]
             inp['MULTIPLE_FORCE_EVALS'] = {
                 'FORCE_EVAL_ORDER': '2 3',
                 'MULTIPLE_SUBSYS': 'T'
             }
 
         elif calc_type == 'Mixed DFT':
-            inp['FORCE_EVAL'] = [cls.force_eval_mixed(cell_abc,
+            inp['FORCE_EVAL'] = [cls.force_eval_mixed(cell,
                                                       first_slab_atom,
                                                       last_slab_atom,
                                                       machine_cores),
-                                 cls.force_eval_fist(cell_abc),
-                                 cls.get_force_eval_qs_dft(cell_abc)]
+                                 cls.force_eval_fist(cell),
+                                 cls.get_force_eval_qs_dft(cell,
+                                                           'mol0.xyz')]
             inp['MULTIPLE_FORCE_EVALS'] = {
                 'FORCE_EVAL_ORDER': '2 3',
                 'MULTIPLE_SUBSYS': 'T'
             }
 
         elif calc_type == 'Full DFT':
-            inp['FORCE_EVAL'] = [cls.get_force_eval_qs_dft(cell_abc)]
+            # The right structure!
+            inp['FORCE_EVAL'] = [cls.get_force_eval_qs_dft(cell,
+                                                           'replica1.xyz')]
         return inp
 
     # ==========================================================================
     @classmethod
-    def force_eval_mixed(cls, cell_abc, first_slab_atom, last_slab_atom,
+    def force_eval_mixed(cls, cell, first_slab_atom, last_slab_atom,
                          machine_cores):
         first_mol_atom = 1
         last_mol_atom = first_slab_atom - 1
@@ -267,9 +259,9 @@ class NEBWorkchain(WorkChain):
                 }
             },
             'SUBSYS': {
-                'CELL': {'ABC': cell_abc},
+                'CELL': {'ABC': cell},
                 'TOPOLOGY': {
-                    'COORD_FILE_NAME': 'mol_on_slab0.xyz',
+                    'COORD_FILE_NAME': 'replica1.xyz',
                     'COORDINATE': 'XYZ',
                     'CONNECTIVITY': 'OFF',
                 },
@@ -280,7 +272,7 @@ class NEBWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def force_eval_fist(cls, cell_abc):
+    def force_eval_fist(cls, cell):
         ff = {
             'SPLINE': {
                 'EPS_SPLINE': '1.30E-5',
@@ -334,10 +326,10 @@ class NEBWorkchain(WorkChain):
             },
             'SUBSYS': {
                 'CELL': {
-                    'ABC': cell_abc,
+                    'ABC': cell,
                 },
                 'TOPOLOGY': {
-                    'COORD_FILE_NAME': 'mol_on_slab0.xyz',
+                    'COORD_FILE_NAME': 'replica1.xyz',
                     'COORDINATE': 'XYZ',
                     'CONNECTIVITY': 'OFF',
                 },
@@ -347,7 +339,7 @@ class NEBWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def get_force_eval_qs_dftb(cls, cell_abc):
+    def get_force_eval_qs_dftb(cls, cell):
         force_eval = {
             'METHOD': 'Quickstep',
             'DFT': {
@@ -392,7 +384,7 @@ class NEBWorkchain(WorkChain):
                 }
             },
             'SUBSYS': {
-                'CELL': {'ABC': cell_abc},
+                'CELL': {'ABC': cell},
                 'TOPOLOGY': {
                     'COORD_FILE_NAME': 'mol0.xyz',
                     'COORDINATE': 'xyz'
@@ -404,8 +396,8 @@ class NEBWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def get_motion(cls, fixed_atoms, nproc_rep, num_replica, spring,
-                   nsteps_it, rotate, align, endpoints, replicas):
+    def get_motion(cls, align, endpoints, fixed_atoms, nproc_rep, nreplicas,
+                   nstepsit, spring, rotate, nreplica_files):
         motion = {
             'CONSTRAINT': {
                 'FIXED_ATOMS': {
@@ -415,7 +407,7 @@ class NEBWorkchain(WorkChain):
             'BAND': {
                 'NPROC_REP': nproc_rep,
                 'BAND_TYPE': 'CI-NEB',
-                'NUMBER_OF_REPLICA': num_replica,
+                'NUMBER_OF_REPLICA': nreplicas,
                 'K_SPRING': spring,
                 'CONVERGENCE_CONTROL': {
                     'MAX_FORCE': '0.0005',
@@ -426,7 +418,7 @@ class NEBWorkchain(WorkChain):
                 'ROTATE_FRAMES': str(rotate)[0],
                 'ALIGN_FRAMES': str(align)[0],
                 'CI_NEB': {
-                    'NSTEPS_IT': nsteps_it
+                    'NSTEPS_IT': nstepsit
                 },
                 'OPTIMIZE_BAND': {
                     'OPT_TYPE': 'DIIS',
@@ -446,7 +438,7 @@ class NEBWorkchain(WorkChain):
         }
 
         # The fun part
-        for r in range(replicas):
+        for r in range(nreplica_files):
             motion['BAND']['REPLICA'].append({
                 'COORD_FILE_NAME': 'replica{}.xyz'.format(r+1)
             })
@@ -455,7 +447,7 @@ class NEBWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def get_force_eval_qs_dft(cls, cell_abc):
+    def get_force_eval_qs_dft(cls, cell, coord_file_name):
         force_eval = {
             'METHOD': 'Quickstep',
             'DFT': {
@@ -510,10 +502,10 @@ class NEBWorkchain(WorkChain):
                 },
             },
             'SUBSYS': {
-                'CELL': {'ABC': cell_abc},
+                'CELL': {'ABC': cell},
                 'TOPOLOGY': {
                     # starting geometry
-                    'COORD_FILE_NAME': 'mol0.xyz',
+                    'COORD_FILE_NAME': coord_file_name,
                     'COORDINATE': 'xyz',
                 },
                 'KIND': [],
@@ -557,29 +549,3 @@ class NEBWorkchain(WorkChain):
         })
 
         return force_eval
-
-    # ==========================================================================
-    @classmethod
-    def mk_coord_files(cls, structures, first_slab_atom):
-        tmpdir = tempfile.mkdtemp()
-        # We need both mol1.xyz and molonslab1.xyz for the initial
-        # configuration
-        molslab1_fn = tmpdir + '/mol_on_slab0.xyz'
-        mol1_fn = tmpdir + '/mol0.xyz'
-
-        atoms = structures[0]
-        mol = atoms[:first_slab_atom-1]
-        atoms.write(molslab1_fn)
-        mol.write(mol1_fn)
-
-        # molslab_f = SinglefileData(file=molslab1_fn)
-        # mol_f = SinglefileData(file=mol1_fn)
-
-        # And we also write all the replicas up to the final geometry.
-        for i, atoms in enumerate(structures):
-            molslab_fn = tmpdir + 'replica{}.xyz'.format(i+1)
-            atoms.write(molslab_fn)
-
-        files = FolderData(folder=tmpdir)
-        shutil.rmtree(tmpdir)
-        return files
