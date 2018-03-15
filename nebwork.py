@@ -183,7 +183,6 @@ class NEBWorkchain(WorkChain):
                        nstepsit, rotate, spring,
                        calc_type, nreplica_files,
                        first_slab_atom, last_slab_atom):
-
         inp = {
             'GLOBAL': {
                 'RUN_TYPE': 'BAND',
@@ -191,9 +190,9 @@ class NEBWorkchain(WorkChain):
                 'WALLTIME': 21000,
                 'PRINT_LEVEL': 'LOW'
             },
-            'MOTION': cls.get_motion(fixed_atoms, nproc_rep, nreplicas,
-                                     spring, nstepsit, rotate, align,
-                                     endpoints, nreplica_files),
+            'MOTION': cls.get_motion(align, endpoints, fixed_atoms, nproc_rep,
+                                     nreplicas, nstepsit, rotate, spring
+                                     nreplica_files),
             'FORCE_EVAL': [],
         }
 
@@ -397,7 +396,7 @@ class NEBWorkchain(WorkChain):
     # ==========================================================================
     @classmethod
     def get_motion(cls, align, endpoints, fixed_atoms, nproc_rep, nreplicas,
-                   nstepsit, spring, rotate, nreplica_files):
+                   nstepsit, rotate, spring, nreplica_files):
         motion = {
             'CONSTRAINT': {
                 'FIXED_ATOMS': {
@@ -408,7 +407,7 @@ class NEBWorkchain(WorkChain):
                 'NPROC_REP': nproc_rep,
                 'BAND_TYPE': 'CI-NEB',
                 'NUMBER_OF_REPLICA': nreplicas,
-                'K_SPRING': spring,
+                'K_SPRING': str(spring),
                 'CONVERGENCE_CONTROL': {
                     'MAX_FORCE': '0.0005',
                     'RMS_FORCE': '0.001',
@@ -418,7 +417,7 @@ class NEBWorkchain(WorkChain):
                 'ROTATE_FRAMES': str(rotate)[0],
                 'ALIGN_FRAMES': str(align)[0],
                 'CI_NEB': {
-                    'NSTEPS_IT': nstepsit
+                    'NSTEPS_IT': str(nstepsit)
                 },
                 'OPTIMIZE_BAND': {
                     'OPT_TYPE': 'DIIS',
