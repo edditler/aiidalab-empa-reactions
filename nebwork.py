@@ -140,6 +140,12 @@ class NEBWorkchain(WorkChain):
 
         remote_computer = code.get_remote_computer()
         machine_cores = remote_computer.get_default_mpiprocs_per_machine()
+        
+        if 'Mixed' in calc_type:
+            # Then we have mol0.xyz which is not a replica itself
+            nreplica_files = len(file_list)-1
+        else:
+            nreplica_files = len(file_list)
 
         inp = cls.get_cp2k_input(cell=cell,
                                  fixed_atoms=fixed_atoms,
@@ -154,7 +160,7 @@ class NEBWorkchain(WorkChain):
                                  spring=spring,
                                  # Calculation specific
                                  calc_type=calc_type,
-                                 nreplica_files=len(file_list)-2,
+                                 nreplica_files=len(file_list)-1,
                                  first_slab_atom=first_slab_atom,
                                  last_slab_atom=last_slab_atom)
 
@@ -191,7 +197,7 @@ class NEBWorkchain(WorkChain):
                 'PRINT_LEVEL': 'LOW'
             },
             'MOTION': cls.get_motion(align, endpoints, fixed_atoms, nproc_rep,
-                                     nreplicas, nstepsit, rotate, spring
+                                     nreplicas, nstepsit, rotate, spring,
                                      nreplica_files),
             'FORCE_EVAL': [],
         }
