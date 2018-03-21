@@ -47,6 +47,7 @@ class NEBWorkchain(WorkChain):
     # ==========================================================================
     def not_converged(self):
         try:
+            self.report('Convergence check DEBUG: {}'.format(self.ctx.neb))
             self.report('Convergence check: {}'
                         .format(self.ctx.neb.res.exceeded_walltime))
             return self.ctx.neb.res.exceeded_walltime
@@ -141,7 +142,7 @@ class NEBWorkchain(WorkChain):
         remote_computer = code.get_remote_computer()
         machine_cores = remote_computer.get_default_mpiprocs_per_machine()
         
-        if 'Mixed' in calc_type:
+        if 'Mixed' in str(calc_type):
             # Then we have mol0.xyz which is not a replica itself
             nreplica_files = len(file_list)-1
         else:
