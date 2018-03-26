@@ -53,6 +53,8 @@ class NEBWorkchain(WorkChain):
             return self.ctx.neb.res.exceeded_walltime
         except AttributeError:
             return True
+        except NotExistent:
+            return False
 
     # ==========================================================================
     def init(self):
@@ -148,6 +150,11 @@ class NEBWorkchain(WorkChain):
         else:
             nreplica_files = len(file_list)
 
+        if calc_type == 'Mixed DFTB':
+            walltime = 18000
+        else:
+            walltime = 86000
+
         inp = cls.get_cp2k_input(cell=cell,
                                  fixed_atoms=fixed_atoms,
                                  machine_cores=machine_cores*num_machines,
@@ -163,7 +170,8 @@ class NEBWorkchain(WorkChain):
                                  calc_type=calc_type,
                                  nreplica_files=len(file_list)-1,
                                  first_slab_atom=first_slab_atom,
-                                 last_slab_atom=last_slab_atom)
+                                 last_slab_atom=last_slab_atom,
+                                 walltime=walltime*0.97)
 
         if remote_calc_folder is not None:
             inputs['parent_folder'] = remote_calc_folder
@@ -171,14 +179,15 @@ class NEBWorkchain(WorkChain):
         inputs['parameters'] = ParameterData(dict=inp)
 
         # settings
-        settings = ParameterData(dict={'additional_retrieve_list': ['*.xyz']})
+        settings = ParameterData(dict={'additional_retrieve_list': ['*.xyz',
+                                                                    '*.out',
+                                                                    '*.ener']})
         inputs['settings'] = settings
 
         # resources
         inputs['_options'] = {
             "resources": {"num_machines": num_machines},
-            "max_wallclock_seconds": 21600,
-            #"max_wallclock_seconds": 86000,
+            "max_wallclock_seconds": walltime,
         }
 
         return inputs
@@ -189,12 +198,12 @@ class NEBWorkchain(WorkChain):
                        align, endpoints, nproc_rep, nreplicas,
                        nstepsit, rotate, spring,
                        calc_type, nreplica_files,
-                       first_slab_atom, last_slab_atom):
+                       first_slab_atom, last_slab_atom,
+                       walltime):
         inp = {
             'GLOBAL': {
                 'RUN_TYPE': 'BAND',
-                #'WALLTIME': 85500,
-                'WALLTIME': 21000,
+                'WALLTIME': walltime,
                 'PRINT_LEVEL': 'LOW'
             },
             'MOTION': cls.get_motion(align, endpoints, fixed_atoms, nproc_rep,
