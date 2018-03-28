@@ -3,6 +3,7 @@ from aiida.orm.data.base import Int, Str, Float, Bool
 from aiida.orm.data.singlefile import SinglefileData
 from aiida.orm.data.folder import FolderData
 from aiida.orm.code import Code
+from aiida.common.exceptions import NotExistent
 # from aiida.orm.data.structure import StructureData
 
 from aiida.work.workchain import WorkChain, ToContext, Calc, while_
@@ -168,7 +169,7 @@ class NEBWorkchain(WorkChain):
                                  spring=spring,
                                  # Calculation specific
                                  calc_type=calc_type,
-                                 nreplica_files=len(file_list)-1,
+                                 nreplica_files=nreplica_files,
                                  first_slab_atom=first_slab_atom,
                                  last_slab_atom=last_slab_atom,
                                  walltime=walltime*0.97)
