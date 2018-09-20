@@ -236,15 +236,15 @@ class ReplicaWorkchain(WorkChain):
                                                       machine_cores,
                                                       subsys_colvar),
                                  cls.force_eval_fist(cell_abc),
-                                 cls.get_force_eval_qs_dft(cell_abc)]
+                                 cls.get_force_eval_qs_dft(cell_abc, only_molecule=True)]
             inp['MULTIPLE_FORCE_EVALS'] = {
                 'FORCE_EVAL_ORDER': '2 3',
                 'MULTIPLE_SUBSYS': 'T'
             }
 
         elif calc_type == 'Full DFT':
-            inp['FORCE_EVAL'] = [cls.get_force_eval_qs_dft(cell_abc,
-                                                           subsys_colvar)]
+            inp['FORCE_EVAL'] = [cls.get_force_eval_qs_dft(cell_abc, only_molecule=False,
+                                                           subsys_colvar=subsys_colvar)]
         return inp
 
     # ==========================================================================
@@ -444,7 +444,7 @@ class ReplicaWorkchain(WorkChain):
 
     # ==========================================================================
     @classmethod
-    def get_force_eval_qs_dft(cls, cell_abc,
+    def get_force_eval_qs_dft(cls, cell_abc, only_molecule,
                               subsys_colvar=None):
         force_eval = {
             'METHOD': 'Quickstep',
@@ -509,6 +509,8 @@ class ReplicaWorkchain(WorkChain):
                 'KIND': [],
             }
         }
+        if only_molecule:
+            force_eval['SUBSYS']['TOPOLOGY']['COORD_FILE_NAME'] = 'mol.xyz'
 
         if subsys_colvar is not None:
             force_eval['SUBSYS']['COLVAR'] = subsys_colvar.get_attrs()
