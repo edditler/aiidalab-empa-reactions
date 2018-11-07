@@ -1,5 +1,5 @@
 from aiida.orm.data.parameter import ParameterData
-from aiida.orm.data.base import Int, Str, Float, Bool
+from aiida.orm.data.base import Int, Str, Float, Bool, List
 from aiida.orm.data.singlefile import SinglefileData
 from aiida.orm.data.folder import FolderData
 from aiida.orm.code import Code
@@ -19,6 +19,7 @@ class NEBWorkchain(WorkChain):
         super(NEBWorkchain, cls).define(spec)
         spec.input("cp2k_code", valid_type=Code)
         spec.input("struc_folder", valid_type=FolderData)
+        spec.input("wfn_cp_commands", valid_type=List)
         spec.input("num_machines", valid_type=Int)
         spec.input("calc_name", valid_type=Str)
         spec.input("cell", valid_type=Str)
@@ -38,9 +39,9 @@ class NEBWorkchain(WorkChain):
         spec.outline(
             cls.init,
             cls.calc_neb,
-            while_(cls.not_converged)(
-                cls.calc_neb
-            ),
+            #while_(cls.not_converged)(
+            #    cls.calc_neb
+            #),
             # cls.store_neb
         )
         spec.dynamic_output()
@@ -87,6 +88,7 @@ class NEBWorkchain(WorkChain):
                                         self.inputs.fixed_atoms,
                                         self.inputs.num_machines,
                                         self.ctx.remote_calc_folder,
+                                        self.inputs.wfn_cp_commands,
                                         # NEB input
                                         self.inputs.align,
                                         self.inputs.endpoints,
@@ -119,10 +121,12 @@ class NEBWorkchain(WorkChain):
     # ==========================================================================
     @classmethod
     def build_calc_inputs(cls, struc_folder, cell, code,
-                          fixed_atoms, num_machines, remote_calc_folder,
+                          fixed_atoms, num_machines, remote_calc_folder
+                          wfn_cp_commands,
                           # NEB input
                           align, endpoints, nproc_rep, nreplicas, nstepsit,
                           rotate, spring,
+                          #list of available wfn
                           # Calculation type specific
                           calc_type, file_list, first_slab_atom,
                           last_slab_atom):
@@ -190,7 +194,10 @@ class NEBWorkchain(WorkChain):
             "resources": {"num_machines": num_machines},
             "max_wallclock_seconds": walltime,
         }
-
+        if len(wfn_cp_commands) > 0:
+            inputs['_options']["prepend_text"] = ""
+            for wfn_cp_command in wfn_cp_commands:
+                inputs['_options']["prepend_text"] += wfn_cp_command + "\n"
         return inputs
 
     # ==========================================================================
@@ -469,7 +476,7 @@ class NEBWorkchain(WorkChain):
             'DFT': {
                 'BASIS_SET_FILE_NAME': 'BASIS_MOLOPT',
                 'POTENTIAL_FILE_NAME': 'POTENTIAL',
-                'RESTART_FILE_NAME': './parent_calc/aiida-RESTART.wfn',
+                #'RESTART_FILE_NAME': './parent_calc/aiida-RESTART.wfn',
                 'QS': {
                     'METHOD': 'GPW',
                     'EXTRAPOLATION': 'USE_GUESS',
@@ -480,16 +487,16 @@ class NEBWorkchain(WorkChain):
                     'NGRIDS': '5',
                 },
                 'SCF': {
-                    'MAX_SCF': '20',
+                    'MAX_SCF': '30',
                     'SCF_GUESS': 'RESTART',
-                    'EPS_SCF': '1.0E-7',
+                    'EPS_SCF': '1.0E-6',
                     'OT': {
                         'PRECONDITIONER': 'FULL_SINGLE_INVERSE',
                         'MINIMIZER': 'CG',
                     },
                     'OUTER_SCF': {
                         'MAX_SCF': '50',
-                        'EPS_SCF': '1.0E-7',
+                        'EPS_SCF': '1.0E-6',
                     },
                     'PRINT': {
                         'RESTART': {
