@@ -121,7 +121,7 @@ class NEBWorkchain(WorkChain):
     # ==========================================================================
     @classmethod
     def build_calc_inputs(cls, struc_folder, cell, code,
-                          fixed_atoms, num_machines, remote_calc_folder
+                          fixed_atoms, num_machines, remote_calc_folder,
                           wfn_cp_commands,
                           # NEB input
                           align, endpoints, nproc_rep, nreplicas, nstepsit,
