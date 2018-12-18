@@ -9,6 +9,7 @@ from aiida.common.exceptions import NotExistent
 from aiida.work.workchain import WorkChain, ToContext, Calc, while_
 from aiida.work.run import submit
 
+import aiida_cp2k ##for debug print
 from aiida_cp2k.calculations import Cp2kCalculation
 
 
@@ -107,6 +108,8 @@ class NEBWorkchain(WorkChain):
 
         self.report(" ")
         self.report("inputs: "+str(inputs))
+        self.report(" ")
+        self.report("Using aiida-cp2k: "+str(aiida_cp2k.__file__))
         self.report(" ")
         future = submit(Cp2kCalculation.process(), **inputs)
         self.report("future: "+str(future))
