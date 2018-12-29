@@ -436,7 +436,10 @@ class ReplicaWorkchain(WorkChain):
             'GEO_OPT': {
                 'MAX_FORCE': '0.0001',
                 'MAX_ITER': '5000',
-                'OPTIMIZER': 'LBFGS'
+                'OPTIMIZER': 'BFGS',
+                     'BFGS' : {
+                         'TRUST_RADIUS' : '[bohr] 0.1'
+                     }
             },
         }
 
