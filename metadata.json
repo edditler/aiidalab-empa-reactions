@@ -1,4 +1,6 @@
 {
     "description": "Empa nanotech@surfaces Laboratory",
-    "title": "Empa nanotech@surfaces Laboratory - Reactions"
+    "title": "Empa nanotech@surfaces Laboratory - Reactions",
+    "version": "0.1",
+    "logo": "miscellaneous/logos/empa.png"
 }
